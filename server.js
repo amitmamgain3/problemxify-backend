@@ -12,6 +12,41 @@ app.use(express.json());
 
 const upload = multer({ storage: multer.memoryStorage() });
 
+/* =========================
+   🔹 CHAT ROUTE
+========================= */
+app.post("/chat", async (req, res) => {
+  try {
+    const userMessage = req.body.message;
+
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        input: userMessage
+      })
+    });
+
+    const data = await response.json();
+
+    const reply =
+      data.output?.[0]?.content?.[0]?.text || "No response";
+
+    res.json({ reply });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ reply: "Server error" });
+  }
+});
+
+/* =========================
+   🔹 TEACHER TOOL (MULTI FILE + ANSWER MODE)
+========================= */
 app.post("/upload", upload.single("image"), async (req, res) => {
   try {
     const mode = req.body.mode || "text";
@@ -21,28 +56,11 @@ app.post("/upload", upload.single("image"), async (req, res) => {
 
     // 🔥 FILE TYPE CHECK
     if (file.mimetype === "application/pdf") {
-      // PDF extract
-      const data = await pdfParse(file.buffer);
-      extractedText = data.text;
+      const pdfData = await pdfParse(file.buffer);
+      extractedText = pdfData.text;
     } else {
-      // Image processing (AI)
+      // Image OCR via AI
       const base64Image = file.buffer.toString("base64");
-
-      let promptText = "";
-
-      if (mode === "answer") {
-        promptText = `
-Extract all questions and generate answers clearly.
-Format:
-Q1. Question
-Ans: Answer
-`;
-      } else {
-        promptText = `
-Extract text exactly as it appears.
-Preserve formatting.
-`;
-      }
 
       const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
@@ -56,7 +74,10 @@ Preserve formatting.
             {
               role: "user",
               content: [
-                { type: "input_text", text: promptText },
+                {
+                  type: "input_text",
+                  text: "Extract all text exactly as it appears. Preserve formatting, line breaks, and numbering."
+                },
                 {
                   type: "input_image",
                   image_url: `data:image/jpeg;base64,${base64Image}`
@@ -71,7 +92,7 @@ Preserve formatting.
       extractedText = data.output?.[0]?.content?.[0]?.text || "";
     }
 
-    // 🔥 ANSWER GENERATION FOR PDF OR TEXT
+    // 🔥 ANSWER GENERATION MODE
     if (mode === "answer") {
       const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
@@ -81,7 +102,22 @@ Preserve formatting.
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
-          input: `Generate answers for the following:\n${extractedText}`
+          input: `
+You are a professional teacher.
+
+Convert the following content into a well-structured question-answer format.
+
+Rules:
+- Use format Q1, Q2, Q3
+- Write "Ans:" below each question
+- Keep answers clear and easy
+- Use bullet points if needed
+- Highlight important keywords
+- Maintain clean spacing
+
+Content:
+${extractedText}
+`
         })
       });
 
@@ -97,6 +133,16 @@ Preserve formatting.
   }
 });
 
+/* =========================
+   🔹 TEST ROUTE
+========================= */
+app.get("/", (req, res) => {
+  res.send("Backend running 🚀");
+});
+
+/* =========================
+   🔹 START SERVER
+========================= */
 app.listen(PORT, () => {
-  console.log("Server running...");
+  console.log(`Server running on port ${PORT}`);
 });
