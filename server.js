@@ -56,12 +56,36 @@ app.post("/chat", async (req, res) => {
 });
 
 /* =========================
-   🔹 TEACHER TOOL (IMAGE → TEXT OCR)
+   🔹 TEACHER TOOL (OCR + ANSWER MODE)
 ========================= */
 app.post("/upload", upload.single("image"), async (req, res) => {
   try {
+    const mode = req.body.mode || "text"; // text or answer
     const imageBuffer = req.file.buffer;
     const base64Image = imageBuffer.toString("base64");
+
+    let promptText = "";
+
+    if (mode === "answer") {
+      promptText = `
+Extract all questions from this image and generate accurate answers.
+Format properly like:
+
+Q1. Question
+Ans: Answer
+
+Q2. Question
+Ans: Answer
+
+Keep answers clear and correct.
+`;
+    } else {
+      promptText = `
+Extract all text EXACTLY as it appears in the image.
+Preserve line breaks, formatting, numbering, and math equations.
+Do not change anything.
+`;
+    }
 
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -77,7 +101,7 @@ app.post("/upload", upload.single("image"), async (req, res) => {
             content: [
               {
                 type: "input_text",
-                text: "Extract all text EXACTLY as it appears in the image. Preserve all formatting, line breaks, numbering, and math equations. Do not change anything."
+                text: promptText
               },
               {
                 type: "input_image",
@@ -91,10 +115,10 @@ app.post("/upload", upload.single("image"), async (req, res) => {
 
     const data = await response.json();
 
-    const extractedText =
-      data.output?.[0]?.content?.[0]?.text || "No text found.";
+    const result =
+      data.output?.[0]?.content?.[0]?.text || "No result found.";
 
-    res.json({ text: extractedText });
+    res.json({ text: result });
 
   } catch (error) {
     console.error(error);
