@@ -3,14 +3,17 @@ import fetch from "node-fetch";
 import cors from "cors";
 
 const app = express();
+
+// Middleware
 app.use(cors());
 app.use(express.json());
 
+// Chat API
 app.post("/chat", async (req, res) => {
   const userMessage = req.body.message;
 
-  if (!userMessage) {
-    return res.status(400).json({ reply: "Please enter a message" });
+  if (!userMessage || userMessage.trim() === "") {
+    return res.status(400).json({ reply: "Please enter a valid message." });
   }
 
   try {
@@ -25,7 +28,17 @@ app.post("/chat", async (req, res) => {
         messages: [
           {
             role: "system",
-            content: "You are an AI tutor. Always give correct and clear answers. If user asks for a specific programming language like C++, Java, or Python, respond ONLY in that language. Do not switch languages."
+            content: `
+You are an AI assistant for students.
+
+Rules:
+1. Understand any language (Hindi, English, Hinglish, etc.).
+2. ALWAYS reply in English unless user clearly asks for another language.
+3. If user asks for programming code, respond ONLY in that programming language (C++, Python, Java, etc.).
+4. Do not switch languages randomly.
+5. Keep answers clean, structured, and easy to read.
+6. Give short and correct answers.
+`
           },
           {
             role: "user",
@@ -37,20 +50,25 @@ app.post("/chat", async (req, res) => {
 
     const data = await response.json();
 
-    // Error handling
+    // Handle API error
     if (data.error) {
-      return res.json({ reply: "Error: " + data.error.message });
+      console.error(data.error);
+      return res.json({ reply: "API Error: " + data.error.message });
     }
 
-    const reply = data.choices[0].message.content;
+    const reply = data.choices?.[0]?.message?.content || "No response received.";
 
     res.json({ reply });
 
   } catch (error) {
+    console.error(error);
     res.status(500).json({ reply: "Server error. Please try again." });
   }
 });
 
-app.listen(3000, () => {
-  console.log("Server running on port 3000");
+// Server start
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
