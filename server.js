@@ -31,7 +31,8 @@ app.post("/chat", async (req, res) => {
         input: [
           {
             role: "system",
-            content: "You are a helpful AI assistant. Always respond clearly. If user asks for code, follow their requested programming language strictly."
+            content:
+              "You are a helpful AI assistant. Always reply in the same language as the user. If user asks for code, strictly follow the requested programming language."
           },
           {
             role: "user",
@@ -55,7 +56,7 @@ app.post("/chat", async (req, res) => {
 });
 
 /* =========================
-   🔹 TEACHER TOOL (IMAGE → TEXT)
+   🔹 TEACHER TOOL (IMAGE → TEXT OCR)
 ========================= */
 app.post("/upload", upload.single("image"), async (req, res) => {
   try {
@@ -76,7 +77,7 @@ app.post("/upload", upload.single("image"), async (req, res) => {
             content: [
               {
                 type: "input_text",
-                text: "Extract all text from this image clearly. Keep formatting clean and readable."
+                text: "Extract all text EXACTLY as it appears in the image. Preserve all formatting, line breaks, numbering, and math equations. Do not change anything."
               },
               {
                 type: "input_image",
@@ -102,7 +103,7 @@ app.post("/upload", upload.single("image"), async (req, res) => {
 });
 
 /* =========================
-   🔹 TEST ROUTE (optional)
+   🔹 TEST ROUTE
 ========================= */
 app.get("/", (req, res) => {
   res.send("Problemxify Backend Running 🚀");
