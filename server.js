@@ -1,45 +1,38 @@
 import express from "express";
-import fetch from "node-fetch";
 import cors from "cors";
+import fetch from "node-fetch";
+import multer from "multer";
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 
+// File upload setup
+const upload = multer({ storage: multer.memoryStorage() });
+
+/* =========================
+   🔹 AI CHAT ROUTE
+========================= */
 app.post("/chat", async (req, res) => {
-  const userMessage = req.body.message;
-  const history = req.body.history || [];
-
-  if (!userMessage || userMessage.trim() === "") {
-    return res.status(400).json({ reply: "Please enter a valid message." });
-  }
-
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const userMessage = req.body.message;
+
+    const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        messages: [
+        input: [
           {
             role: "system",
-            content: `
-You are an AI assistant for students.
-
-Rules:
-1. Understand any language (Hindi, English, Hinglish).
-2. Always reply in English unless user asks otherwise.
-3. Remember previous conversation context.
-4. If user already specified programming language, DO NOT ask again.
-5. If user asks for code, respond only in that language.
-6. Give clean and structured answers.
-`
+            content: "You are a helpful AI assistant. Always respond clearly. If user asks for code, follow their requested programming language strictly."
           },
-          ...history,
           {
             role: "user",
             content: userMessage
@@ -50,21 +43,74 @@ Rules:
 
     const data = await response.json();
 
-    if (data.error) {
-      return res.json({ reply: "Error: " + data.error.message });
-    }
-
-    const reply = data.choices?.[0]?.message?.content || "No response.";
+    const reply =
+      data.output?.[0]?.content?.[0]?.text || "No response";
 
     res.json({ reply });
 
   } catch (error) {
-    res.status(500).json({ reply: "Server error." });
+    console.error(error);
+    res.status(500).json({ reply: "Server error" });
   }
 });
 
-const PORT = process.env.PORT || 3000;
+/* =========================
+   🔹 TEACHER TOOL (IMAGE → TEXT)
+========================= */
+app.post("/upload", upload.single("image"), async (req, res) => {
+  try {
+    const imageBuffer = req.file.buffer;
+    const base64Image = imageBuffer.toString("base64");
 
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        input: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: "Extract all text from this image clearly. Keep formatting clean and readable."
+              },
+              {
+                type: "input_image",
+                image_url: `data:image/jpeg;base64,${base64Image}`
+              }
+            ]
+          }
+        ]
+      })
+    });
+
+    const data = await response.json();
+
+    const extractedText =
+      data.output?.[0]?.content?.[0]?.text || "No text found.";
+
+    res.json({ text: extractedText });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ text: "Error processing image" });
+  }
+});
+
+/* =========================
+   🔹 TEST ROUTE (optional)
+========================= */
+app.get("/", (req, res) => {
+  res.send("Problemxify Backend Running 🚀");
+});
+
+/* =========================
+   🔹 SERVER START
+========================= */
 app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
+  console.log(`Server running on port ${PORT}`);
 });
