@@ -5,9 +5,11 @@ const fs = require("fs");
 const pdfParse = require("pdf-parse");
 const mammoth = require("mammoth");
 const xlsx = require("xlsx");
-const { OpenAI } = require("openai");
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
 const PDFDocument = require("pdfkit");
 const { Document, Packer, Paragraph } = require("docx");
+const OpenAI = require("openai");
 
 const app = express();
 app.use(cors());
@@ -19,21 +21,63 @@ const openai = new OpenAI({
 
 const upload = multer({ dest: "uploads/" });
 
+const SECRET = "mysecretkey";
+let users = [];
+
+/* ================= AUTH ================= */
+
+// SIGNUP
+app.post("/signup", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const hashed = await bcrypt.hash(password, 10);
+    users.push({ email, password: hashed });
+
+    res.json({ message: "User created" });
+  } catch {
+    res.status(500).json({ error: "Signup failed" });
+  }
+});
+
+// LOGIN
+app.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const user = users.find(u => u.email === email);
+    if (!user) return res.status(400).json({ error: "User not found" });
+
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.status(400).json({ error: "Wrong password" });
+
+    const token = jwt.sign({ email }, SECRET, { expiresIn: "7d" });
+
+    res.json({ token });
+  } catch {
+    res.status(500).json({ error: "Login failed" });
+  }
+});
+
 /* ================= CHAT ================= */
+
 app.post("/chat", async (req, res) => {
   try {
-    const response = await openai.chat.completions.create({
+    const response = await openai.responses.create({
       model: "gpt-4o-mini",
-      messages: [{ role: "user", content: req.body.message }]
+      input: req.body.message
     });
 
-    res.json({ reply: response.choices[0].message.content });
-  } catch {
+    const reply = response.output_text;
+
+    res.json({ reply });
+  } catch (err) {
     res.status(500).json({ reply: "Server error" });
   }
 });
 
 /* ================= TEACHER TOOL ================= */
+
 app.post("/upload", upload.single("file"), async (req, res) => {
   try {
     let text = "";
@@ -47,19 +91,22 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       text = data.text;
     }
 
-    // IMAGE (AI OCR 🔥)
+    // IMAGE (AI OCR)
     else if (type.startsWith("image/")) {
       const base64 = fs.readFileSync(filePath, { encoding: "base64" });
 
-      const vision = await openai.chat.completions.create({
+      const response = await openai.responses.create({
         model: "gpt-4o-mini",
-        messages: [
+        input: [
           {
             role: "user",
             content: [
-              { type: "text", text: "Extract text exactly with math formatting." },
               {
-                type: "image_url",
+                type: "input_text",
+                text: "Extract all text clearly including math."
+              },
+              {
+                type: "input_image",
                 image_url: `data:image/jpeg;base64,${base64}`
               }
             ]
@@ -67,7 +114,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
         ]
       });
 
-      text = vision.choices[0].message.content;
+      text = response.output_text;
     }
 
     // WORD
@@ -83,33 +130,32 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       text = xlsx.utils.sheet_to_csv(sheet);
     }
 
-    // MODE
+    // MODE CONTROL
     let prompt = "";
-    if (mode === "text") prompt = "Return clean formatted text only.";
+    if (mode === "text") prompt = "Clean and return text only.";
     else if (mode === "answer") prompt = "Give short direct answers.";
     else prompt = "Solve step-by-step clearly.";
 
-    const ai = await openai.chat.completions.create({
+    const ai = await openai.responses.create({
       model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: prompt },
-        { role: "user", content: text }
-      ]
+      input: `${prompt}\n\n${text}`
     });
 
     fs.unlinkSync(filePath);
 
     res.json({
       extracted: text,
-      result: ai.choices[0].message.content
+      result: ai.output_text
     });
 
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Processing failed" });
   }
 });
 
 /* ================= PDF DOWNLOAD ================= */
+
 app.post("/download-pdf", (req, res) => {
   const text = req.body.text;
 
@@ -128,16 +174,19 @@ app.post("/download-pdf", (req, res) => {
 });
 
 /* ================= DOCX DOWNLOAD ================= */
+
 app.post("/download-docx", async (req, res) => {
   const text = req.body.text;
 
   const doc = new Document({
-    sections: [{
-      children: [
-        new Paragraph("AI Result"),
-        new Paragraph(text)
-      ]
-    }]
+    sections: [
+      {
+        children: [
+          new Paragraph("AI Result"),
+          new Paragraph(text)
+        ]
+      }
+    ]
   });
 
   const buffer = await Packer.toBuffer(doc);
@@ -146,4 +195,8 @@ app.post("/download-docx", async (req, res) => {
   res.send(buffer);
 });
 
-app.listen(3000, () => console.log("Server running"));
+/* ================= START ================= */
+
+app.listen(3000, () => {
+  console.log("Server running on port 3000");
+});
