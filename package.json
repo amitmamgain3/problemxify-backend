@@ -1,17 +1,16 @@
 {
   "name": "problemxify-backend",
   "version": "1.0.0",
-  "description": "AI backend for Problemxify",
   "main": "server.js",
-  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
     "cors": "^2.8.5",
-    "node-fetch": "^2.6.7",
+    "express": "^4.18.2",
     "multer": "^1.4.5-lts.1",
-    "pdf-parse": "^1.1.1"
+    "pdf-parse": "^1.1.1",
+    "tesseract.js": "^5.0.3",
+    "openai": "^4.0.0"
   }
 }
