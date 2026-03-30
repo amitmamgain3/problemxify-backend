@@ -95,7 +95,8 @@ app.post("/chat", authMiddleware, async (req, res) => {
 
     res.json({ reply: response.output_text });
 
-  } catch {
+  } catch (err) {
+    console.error("Chat error:", err);
     res.status(500).json({ reply: "Server error" });
   }
 });
@@ -104,6 +105,7 @@ app.post("/chat", authMiddleware, async (req, res) => {
 
 app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
   try {
+
     const user = users.find(u => u.email === req.user.email);
 
     if (!checkUsage(user)) {
@@ -113,12 +115,16 @@ app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
     let text = "";
     const filePath = req.file.path;
     const type = req.file.mimetype;
-    const mode = req.body.mode || "solution";
+
+    console.log("File type:", type); // 🔍 DEBUG
+
+    // ===== FILE HANDLING =====
 
     if (type === "application/pdf") {
       const data = await pdfParse(fs.readFileSync(filePath));
       text = data.text;
     }
+
     else if (type.startsWith("image/")) {
       const base64 = fs.readFileSync(filePath, { encoding: "base64" });
 
@@ -128,8 +134,11 @@ app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
           {
             role: "user",
             content: [
-              { type: "input_text", text: "Extract text clearly including math." },
-              { type: "input_image", image_url: `data:image/jpeg;base64,${base64}` }
+              { type: "input_text", text: "Extract text clearly." },
+              {
+                type: "input_image",
+                image_url: `data:image/jpeg;base64,${base64}`
+              }
             ]
           }
         ]
@@ -137,15 +146,31 @@ app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
 
       text = response.output_text;
     }
-    else if (type.includes("word")) {
+
+    else if (
+      type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+      type === "application/msword"
+    ) {
       const data = await mammoth.extractRawText({ path: filePath });
       text = data.value;
     }
-    else if (type.includes("spreadsheet")) {
+
+    else if (
+      type === "application/vnd.ms-excel" ||
+      type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    ) {
       const wb = xlsx.readFile(filePath);
       const sheet = wb.Sheets[wb.SheetNames[0]];
       text = xlsx.utils.sheet_to_csv(sheet);
     }
+
+    else {
+      text = "Unsupported file format";
+    }
+
+    // ===== AI PROCESS =====
+
+    const mode = req.body.mode || "solution";
 
     let prompt = "";
     if (mode === "text") prompt = "Return clean text.";
@@ -164,6 +189,7 @@ app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
     });
 
   } catch (err) {
+    console.error("Upload error:", err);
     res.status(500).json({ error: "Processing failed" });
   }
 });
@@ -181,7 +207,7 @@ app.post("/download-pdf", authMiddleware, (req, res) => {
   doc.end();
 });
 
-/* ================= DOCX (FIXED + BONUS APPLIED) ================= */
+/* ================= DOCX (STRUCTURED + BONUS) ================= */
 
 app.post("/download-docx", authMiddleware, async (req, res) => {
   const text = req.body.text;
@@ -191,7 +217,7 @@ app.post("/download-docx", authMiddleware, async (req, res) => {
   const paragraphs = lines.map(line =>
     new Paragraph({
       text: line,
-      bullet: { level: 0 }, // 🔥 BONUS APPLIED HERE
+      bullet: { level: 0 }, // 🔥 BONUS
       spacing: { after: 200 }
     })
   );
@@ -206,4 +232,8 @@ app.post("/download-docx", authMiddleware, async (req, res) => {
   res.send(buffer);
 });
 
-app.listen(3000, () => console.log("Server running"));
+/* ================= START ================= */
+
+app.listen(3000, () => {
+  console.log("🔥 Server running on port 3000");
+});
