@@ -1,16 +1,29 @@
 {
   "name": "problemxify-backend",
   "version": "1.0.0",
+  "description": "AI Problem Solver Backend (Chat + Teacher Tool)",
   "main": "server.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node server.js"
   },
+  "keywords": [
+    "ai",
+    "chatbot",
+    "ocr",
+    "pdf",
+    "teacher-tool",
+    "problem-solver"
+  ],
+  "author": "Problemxify",
+  "license": "ISC",
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "multer": "^1.4.5-lts.1",
     "pdf-parse": "^1.1.1",
-    "tesseract.js": "^5.0.3",
+    "mammoth": "^1.4.27",
+    "xlsx": "^0.18.5",
     "openai": "^4.0.0"
   }
 }
