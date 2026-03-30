@@ -5,8 +5,6 @@ const fs = require("fs");
 const pdfParse = require("pdf-parse");
 const mammoth = require("mammoth");
 const xlsx = require("xlsx");
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
 const PDFDocument = require("pdfkit");
 const { Document, Packer, Paragraph } = require("docx");
 const OpenAI = require("openai");
@@ -21,76 +19,10 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-const SECRET = "mysecretkey";
-let users = [];
-
-/* ================= AUTH ================= */
-
-app.post("/signup", async (req, res) => {
-  const { email, password } = req.body;
-
-  if (!email || !password) {
-    return res.status(400).json({ error: "Email & Password required" });
-  }
-
-  const hashed = await bcrypt.hash(password, 10);
-
-  users.push({
-    email,
-    password: hashed,
-    usage: 0,
-    plan: "free"
-  });
-
-  res.json({ message: "User created" });
-});
-
-app.post("/login", async (req, res) => {
-  const { email, password } = req.body;
-
-  const user = users.find(u => u.email === email);
-  if (!user) return res.status(400).json({ error: "User not found" });
-
-  const match = await bcrypt.compare(password, user.password);
-  if (!match) return res.status(400).json({ error: "Wrong password" });
-
-  const token = jwt.sign({ email }, SECRET, { expiresIn: "7d" });
-
-  res.json({ token });
-});
-
-/* ================= MIDDLEWARE ================= */
-
-function authMiddleware(req, res, next) {
-  const token = req.headers.authorization;
-
-  if (!token) return res.status(401).json({ error: "Login required" });
-
-  try {
-    const decoded = jwt.verify(token, SECRET);
-    req.user = decoded;
-    next();
-  } catch {
-    res.status(401).json({ error: "Invalid token" });
-  }
-}
-
-function checkUsage(user) {
-  if (user.plan === "paid") return true;
-  if (user.usage >= 5) return false;
-  user.usage++;
-  return true;
-}
-
 /* ================= CHAT ================= */
 
-app.post("/chat", authMiddleware, async (req, res) => {
+app.post("/chat", async (req, res) => {
   try {
-    const user = users.find(u => u.email === req.user.email);
-
-    if (!checkUsage(user)) {
-      return res.json({ reply: "❌ Limit reached" });
-    }
 
     const response = await openai.responses.create({
       model: "gpt-4o-mini",
@@ -107,17 +39,11 @@ app.post("/chat", authMiddleware, async (req, res) => {
 
 /* ================= UPLOAD ================= */
 
-app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
+app.post("/upload", upload.single("file"), async (req, res) => {
   try {
 
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });
-    }
-
-    const user = users.find(u => u.email === req.user.email);
-
-    if (!checkUsage(user)) {
-      return res.status(403).json({ error: "Limit reached" });
     }
 
     let text = "";
@@ -126,7 +52,7 @@ app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
 
     console.log("📂 File type:", type);
 
-    // ===== FILE HANDLING =====
+    /* ===== FILE HANDLING ===== */
 
     if (type === "application/pdf") {
       const data = await pdfParse(fs.readFileSync(filePath));
@@ -173,14 +99,14 @@ app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
       text = "Unsupported file format";
     }
 
-    // ===== AI PROCESS =====
+    /* ===== AI PROCESS ===== */
 
     const mode = req.body.mode || "solution";
 
     let prompt = "";
     if (mode === "text") prompt = "Return clean text";
     else if (mode === "answer") prompt = "Give short answers";
-    else prompt = "Solve step-by-step";
+    else prompt = "Solve step-by-step clearly";
 
     const ai = await openai.responses.create({
       model: "gpt-4o-mini",
@@ -193,13 +119,13 @@ app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
 
   } catch (err) {
     console.error("🔥 Upload error:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Processing failed", details: err.message });
   }
 });
 
-/* ================= PDF ================= */
+/* ================= DOWNLOAD ================= */
 
-app.post("/download-pdf", authMiddleware, (req, res) => {
+app.post("/download-pdf", (req, res) => {
   const doc = new PDFDocument();
 
   res.setHeader("Content-Type", "application/pdf");
@@ -210,9 +136,8 @@ app.post("/download-pdf", authMiddleware, (req, res) => {
   doc.end();
 });
 
-/* ================= DOCX ================= */
+app.post("/download-docx", async (req, res) => {
 
-app.post("/download-docx", authMiddleware, async (req, res) => {
   const lines = req.body.text.split("\n");
 
   const paragraphs = lines.map(line =>
@@ -235,4 +160,4 @@ app.post("/download-docx", authMiddleware, async (req, res) => {
 
 /* ================= START ================= */
 
-app.listen(3000, () => console.log("🔥 Server running on port 3000"));
+app.listen(3000, () => console.log("🔥 Server running (NO LOGIN MODE)"));
