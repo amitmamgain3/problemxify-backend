@@ -15,11 +15,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+const upload = multer({ dest: "uploads/" });
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
-
-const upload = multer({ dest: "uploads/" });
 
 const SECRET = "mysecretkey";
 let users = [];
@@ -28,6 +28,10 @@ let users = [];
 
 app.post("/signup", async (req, res) => {
   const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email & Password required" });
+  }
 
   const hashed = await bcrypt.hash(password, 10);
 
@@ -85,7 +89,7 @@ app.post("/chat", authMiddleware, async (req, res) => {
     const user = users.find(u => u.email === req.user.email);
 
     if (!checkUsage(user)) {
-      return res.json({ reply: "❌ Limit reached. Upgrade plan." });
+      return res.json({ reply: "❌ Limit reached" });
     }
 
     const response = await openai.responses.create({
@@ -101,10 +105,14 @@ app.post("/chat", authMiddleware, async (req, res) => {
   }
 });
 
-/* ================= TEACHER TOOL ================= */
+/* ================= UPLOAD ================= */
 
 app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
   try {
+
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
 
     const user = users.find(u => u.email === req.user.email);
 
@@ -116,7 +124,7 @@ app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
     const filePath = req.file.path;
     const type = req.file.mimetype;
 
-    console.log("File type:", type); // 🔍 DEBUG
+    console.log("📂 File type:", type);
 
     // ===== FILE HANDLING =====
 
@@ -134,11 +142,8 @@ app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
           {
             role: "user",
             content: [
-              { type: "input_text", text: "Extract text clearly." },
-              {
-                type: "input_image",
-                image_url: `data:image/jpeg;base64,${base64}`
-              }
+              { type: "input_text", text: "Extract text clearly" },
+              { type: "input_image", image_url: `data:image/jpeg;base64,${base64}` }
             ]
           }
         ]
@@ -173,9 +178,9 @@ app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
     const mode = req.body.mode || "solution";
 
     let prompt = "";
-    if (mode === "text") prompt = "Return clean text.";
-    else if (mode === "answer") prompt = "Give short answers.";
-    else prompt = "Solve step-by-step clearly.";
+    if (mode === "text") prompt = "Return clean text";
+    else if (mode === "answer") prompt = "Give short answers";
+    else prompt = "Solve step-by-step";
 
     const ai = await openai.responses.create({
       model: "gpt-4o-mini",
@@ -184,13 +189,11 @@ app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
 
     fs.unlinkSync(filePath);
 
-    res.json({
-      result: ai.output_text
-    });
+    res.json({ result: ai.output_text });
 
   } catch (err) {
-    console.error("Upload error:", err);
-    res.status(500).json({ error: "Processing failed" });
+    console.error("🔥 Upload error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -203,21 +206,19 @@ app.post("/download-pdf", authMiddleware, (req, res) => {
   res.setHeader("Content-Disposition", "attachment; filename=result.pdf");
 
   doc.pipe(res);
-  doc.fontSize(14).text(req.body.text);
+  doc.text(req.body.text);
   doc.end();
 });
 
-/* ================= DOCX (STRUCTURED + BONUS) ================= */
+/* ================= DOCX ================= */
 
 app.post("/download-docx", authMiddleware, async (req, res) => {
-  const text = req.body.text;
-
-  const lines = text.split("\n");
+  const lines = req.body.text.split("\n");
 
   const paragraphs = lines.map(line =>
     new Paragraph({
       text: line,
-      bullet: { level: 0 }, // 🔥 BONUS
+      bullet: { level: 0 },
       spacing: { after: 200 }
     })
   );
@@ -234,6 +235,4 @@ app.post("/download-docx", authMiddleware, async (req, res) => {
 
 /* ================= START ================= */
 
-app.listen(3000, () => {
-  console.log("🔥 Server running on port 3000");
-});
+app.listen(3000, () => console.log("🔥 Server running on port 3000"));
