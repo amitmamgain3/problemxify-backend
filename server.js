@@ -22,13 +22,10 @@ const openai = new OpenAI({
 const upload = multer({ dest: "uploads/" });
 
 const SECRET = "mysecretkey";
-
-// USERS STORAGE
 let users = [];
 
 /* ================= AUTH ================= */
 
-// SIGNUP
 app.post("/signup", async (req, res) => {
   const { email, password } = req.body;
 
@@ -44,7 +41,6 @@ app.post("/signup", async (req, res) => {
   res.json({ message: "User created" });
 });
 
-// LOGIN
 app.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
@@ -59,7 +55,7 @@ app.post("/login", async (req, res) => {
   res.json({ token });
 });
 
-/* ================= AUTH MIDDLEWARE ================= */
+/* ================= MIDDLEWARE ================= */
 
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization;
@@ -75,13 +71,9 @@ function authMiddleware(req, res, next) {
   }
 }
 
-/* ================= USAGE CONTROL ================= */
-
 function checkUsage(user) {
   if (user.plan === "paid") return true;
-
   if (user.usage >= 5) return false;
-
   user.usage++;
   return true;
 }
@@ -93,7 +85,7 @@ app.post("/chat", authMiddleware, async (req, res) => {
     const user = users.find(u => u.email === req.user.email);
 
     if (!checkUsage(user)) {
-      return res.json({ reply: "❌ Free limit reached. Upgrade plan." });
+      return res.json({ reply: "❌ Limit reached. Upgrade plan." });
     }
 
     const response = await openai.responses.create({
@@ -123,13 +115,10 @@ app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
     const type = req.file.mimetype;
     const mode = req.body.mode || "solution";
 
-    // PDF
     if (type === "application/pdf") {
       const data = await pdfParse(fs.readFileSync(filePath));
       text = data.text;
     }
-
-    // IMAGE (AI OCR)
     else if (type.startsWith("image/")) {
       const base64 = fs.readFileSync(filePath, { encoding: "base64" });
 
@@ -140,10 +129,7 @@ app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
             role: "user",
             content: [
               { type: "input_text", text: "Extract text clearly including math." },
-              {
-                type: "input_image",
-                image_url: `data:image/jpeg;base64,${base64}`
-              }
+              { type: "input_image", image_url: `data:image/jpeg;base64,${base64}` }
             ]
           }
         ]
@@ -151,21 +137,16 @@ app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
 
       text = response.output_text;
     }
-
-    // WORD
     else if (type.includes("word")) {
       const data = await mammoth.extractRawText({ path: filePath });
       text = data.value;
     }
-
-    // EXCEL
     else if (type.includes("spreadsheet")) {
       const wb = xlsx.readFile(filePath);
       const sheet = wb.Sheets[wb.SheetNames[0]];
       text = xlsx.utils.sheet_to_csv(sheet);
     }
 
-    // MODE
     let prompt = "";
     if (mode === "text") prompt = "Return clean text.";
     else if (mode === "answer") prompt = "Give short answers.";
@@ -179,7 +160,6 @@ app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
     fs.unlinkSync(filePath);
 
     res.json({
-      extracted: text,
       result: ai.output_text
     });
 
@@ -191,32 +171,33 @@ app.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
 /* ================= PDF ================= */
 
 app.post("/download-pdf", authMiddleware, (req, res) => {
-  const text = req.body.text;
-
   const doc = new PDFDocument();
 
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", "attachment; filename=result.pdf");
 
   doc.pipe(res);
-  doc.fontSize(18).text("AI Result", { align: "center" });
-  doc.moveDown();
-  doc.fontSize(12).text(text);
+  doc.fontSize(14).text(req.body.text);
   doc.end();
 });
 
-/* ================= DOCX ================= */
+/* ================= DOCX (FIXED + BONUS APPLIED) ================= */
 
 app.post("/download-docx", authMiddleware, async (req, res) => {
   const text = req.body.text;
 
+  const lines = text.split("\n");
+
+  const paragraphs = lines.map(line =>
+    new Paragraph({
+      text: line,
+      bullet: { level: 0 }, // 🔥 BONUS APPLIED HERE
+      spacing: { after: 200 }
+    })
+  );
+
   const doc = new Document({
-    sections: [{
-      children: [
-        new Paragraph("AI Result"),
-        new Paragraph(text)
-      ]
-    }]
+    sections: [{ children: paragraphs }]
   });
 
   const buffer = await Packer.toBuffer(doc);
@@ -225,8 +206,4 @@ app.post("/download-docx", authMiddleware, async (req, res) => {
   res.send(buffer);
 });
 
-/* ================= START ================= */
-
-app.listen(3000, () => {
-  console.log("Server running on port 3000");
-});
+app.listen(3000, () => console.log("Server running"));
