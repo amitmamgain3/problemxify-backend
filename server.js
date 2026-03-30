@@ -1,148 +1,82 @@
-import express from "express";
-import cors from "cors";
-import fetch from "node-fetch";
-import multer from "multer";
-import pdfParse from "pdf-parse";
+const express = require("express");
+const cors = require("cors");
+const multer = require("multer");
+const fs = require("fs");
+const pdfParse = require("pdf-parse");
+const Tesseract = require("tesseract.js");
+const { OpenAI } = require("openai");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
 app.use(cors());
 app.use(express.json());
 
-const upload = multer({ storage: multer.memoryStorage() });
+// OpenAI
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
-/* =========================
-   🔹 CHAT ROUTE
-========================= */
+// Upload setup
+const upload = multer({ dest: "uploads/" });
+
+// ================= CHAT =================
 app.post("/chat", async (req, res) => {
   try {
-    const userMessage = req.body.message;
+    const { message } = req.body;
 
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        input: userMessage
-      })
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: message }]
     });
 
-    const data = await response.json();
+    res.json({ reply: response.choices[0].message.content });
 
-    const reply =
-      data.output?.[0]?.content?.[0]?.text || "No response";
-
-    res.json({ reply });
-
-  } catch (error) {
-    console.error(error);
+  } catch (err) {
     res.status(500).json({ reply: "Server error" });
   }
 });
 
-/* =========================
-   🔹 TEACHER TOOL (MULTI FILE + ANSWER MODE)
-========================= */
-app.post("/upload", upload.single("image"), async (req, res) => {
+// ================= TEACHER TOOL =================
+app.post("/upload", upload.single("file"), async (req, res) => {
   try {
-    const mode = req.body.mode || "text";
-    const file = req.file;
+    let text = "";
 
-    let extractedText = "";
+    const filePath = req.file.path;
 
-    // 🔥 FILE TYPE CHECK
-    if (file.mimetype === "application/pdf") {
-      const pdfData = await pdfParse(file.buffer);
-      extractedText = pdfData.text;
+    // PDF case
+    if (req.file.mimetype === "application/pdf") {
+      const data = await pdfParse(fs.readFileSync(filePath));
+      text = data.text;
     } else {
-      // Image OCR via AI
-      const base64Image = file.buffer.toString("base64");
-
-      const response = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          input: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "input_text",
-                  text: "Extract all text exactly as it appears. Preserve formatting, line breaks, and numbering."
-                },
-                {
-                  type: "input_image",
-                  image_url: `data:image/jpeg;base64,${base64Image}`
-                }
-              ]
-            }
-          ]
-        })
-      });
-
-      const data = await response.json();
-      extractedText = data.output?.[0]?.content?.[0]?.text || "";
+      // Image case
+      const result = await Tesseract.recognize(filePath, "eng");
+      text = result.data.text;
     }
 
-    // 🔥 ANSWER GENERATION MODE
-    if (mode === "answer") {
-      const response = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-          "Content-Type": "application/json"
+    // AI processing
+    const ai = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "You are a teacher. Solve and format answers cleanly."
         },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          input: `
-You are a professional teacher.
+        {
+          role: "user",
+          content: text
+        }
+      ]
+    });
 
-Convert the following content into a well-structured question-answer format.
+    fs.unlinkSync(filePath);
 
-Rules:
-- Use format Q1, Q2, Q3
-- Write "Ans:" below each question
-- Keep answers clear and easy
-- Use bullet points if needed
-- Highlight important keywords
-- Maintain clean spacing
+    res.json({
+      extracted: text,
+      answer: ai.choices[0].message.content
+    });
 
-Content:
-${extractedText}
-`
-        })
-      });
-
-      const data = await response.json();
-      extractedText = data.output?.[0]?.content?.[0]?.text || extractedText;
-    }
-
-    res.json({ text: extractedText });
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ text: "Error processing file" });
+  } catch (err) {
+    res.status(500).json({ error: "Processing failed" });
   }
 });
 
-/* =========================
-   🔹 TEST ROUTE
-========================= */
-app.get("/", (req, res) => {
-  res.send("Backend running 🚀");
-});
-
-/* =========================
-   🔹 START SERVER
-========================= */
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+app.listen(3000, () => console.log("Server running"));
