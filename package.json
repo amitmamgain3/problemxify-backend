@@ -1,19 +1,22 @@
 {
   "name": "problemxify-backend",
   "version": "1.0.0",
+  "description": "AI SaaS Backend (Chat + Teacher Tool + Auth)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
+    "bcrypt": "^5.1.0",
     "cors": "^2.8.5",
+    "docx": "^8.5.0",
     "express": "^4.18.2",
-    "multer": "^1.4.5-lts.1",
-    "pdf-parse": "^1.1.1",
+    "jsonwebtoken": "^9.0.0",
     "mammoth": "^1.4.27",
-    "xlsx": "^0.18.5",
+    "multer": "^1.4.5-lts.1",
     "openai": "^4.0.0",
+    "pdf-parse": "^1.1.1",
     "pdfkit": "^0.13.0",
-    "docx": "^8.5.0"
+    "xlsx": "^0.18.5"
   }
 }
