@@ -19,17 +19,21 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-/* ================= CHAT ================= */
+/* ================= CHAT WITH MEMORY ================= */
 
 app.post("/chat", async (req, res) => {
   try {
 
+    const messages = req.body.messages;
+
     const response = await openai.responses.create({
       model: "gpt-4o-mini",
-      input: req.body.message
+      input: messages
     });
 
-    res.json({ reply: response.output_text });
+    res.json({
+      reply: response.output_text
+    });
 
   } catch (err) {
     console.error("Chat error:", err);
@@ -37,7 +41,7 @@ app.post("/chat", async (req, res) => {
   }
 });
 
-/* ================= UPLOAD ================= */
+/* ================= FILE UPLOAD ================= */
 
 app.post("/upload", upload.single("file"), async (req, res) => {
   try {
@@ -49,10 +53,6 @@ app.post("/upload", upload.single("file"), async (req, res) => {
     let text = "";
     const filePath = req.file.path;
     const type = req.file.mimetype;
-
-    console.log("📂 File type:", type);
-
-    /* ===== FILE HANDLING ===== */
 
     if (type === "application/pdf") {
       const data = await pdfParse(fs.readFileSync(filePath));
@@ -78,39 +78,20 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       text = response.output_text;
     }
 
-    else if (
-      type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-      type === "application/msword"
-    ) {
+    else if (type.includes("word")) {
       const data = await mammoth.extractRawText({ path: filePath });
       text = data.value;
     }
 
-    else if (
-      type === "application/vnd.ms-excel" ||
-      type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    ) {
+    else if (type.includes("spreadsheet")) {
       const wb = xlsx.readFile(filePath);
       const sheet = wb.Sheets[wb.SheetNames[0]];
       text = xlsx.utils.sheet_to_csv(sheet);
     }
 
-    else {
-      text = "Unsupported file format";
-    }
-
-    /* ===== AI PROCESS ===== */
-
-    const mode = req.body.mode || "solution";
-
-    let prompt = "";
-    if (mode === "text") prompt = "Return clean text";
-    else if (mode === "answer") prompt = "Give short answers";
-    else prompt = "Solve step-by-step clearly";
-
     const ai = await openai.responses.create({
       model: "gpt-4o-mini",
-      input: `${prompt}\n\n${text}`
+      input: `Solve clearly:\n\n${text}`
     });
 
     fs.unlinkSync(filePath);
@@ -118,8 +99,8 @@ app.post("/upload", upload.single("file"), async (req, res) => {
     res.json({ result: ai.output_text });
 
   } catch (err) {
-    console.error("🔥 Upload error:", err);
-    res.status(500).json({ error: "Processing failed", details: err.message });
+    console.error("Upload error:", err);
+    res.status(500).json({ error: "Processing failed" });
   }
 });
 
@@ -127,7 +108,6 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 
 app.post("/download-pdf", (req, res) => {
   const doc = new PDFDocument();
-
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", "attachment; filename=result.pdf");
 
@@ -160,4 +140,6 @@ app.post("/download-docx", async (req, res) => {
 
 /* ================= START ================= */
 
-app.listen(3000, () => console.log("🔥 Server running (NO LOGIN MODE)"));
+app.listen(3000, () => {
+  console.log("🔥 Server running with memory");
+});
