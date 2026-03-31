@@ -20,7 +20,6 @@ const openai = new OpenAI({
 });
 
 /* ================= CHAT WITH MEMORY ================= */
-
 app.post("/chat", async (req, res) => {
   try {
 
@@ -41,8 +40,7 @@ app.post("/chat", async (req, res) => {
   }
 });
 
-/* ================= FILE UPLOAD ================= */
-
+/* ================= SINGLE FILE UPLOAD ================= */
 app.post("/upload", upload.single("file"), async (req, res) => {
   try {
 
@@ -104,10 +102,86 @@ app.post("/upload", upload.single("file"), async (req, res) => {
   }
 });
 
-/* ================= DOWNLOAD ================= */
+/* ================= MULTI FILE PAPER GENERATOR ================= */
+app.post("/generate-paper", upload.array("files"), async (req, res) => {
+  try {
 
+    let combinedText = "";
+
+    for (let file of req.files) {
+
+      const type = file.mimetype;
+
+      if (type === "application/pdf") {
+        const data = await pdfParse(fs.readFileSync(file.path));
+        combinedText += data.text + "\n";
+      }
+
+      else if (type.startsWith("image/")) {
+        const base64 = fs.readFileSync(file.path, { encoding: "base64" });
+
+        const response = await openai.responses.create({
+          model: "gpt-4o-mini",
+          input: [
+            {
+              role: "user",
+              content: [
+                { type: "input_text", text: "Extract text clearly" },
+                { type: "input_image", image_url: `data:image/jpeg;base64,${base64}` }
+              ]
+            }
+          ]
+        });
+
+        combinedText += response.output_text + "\n";
+      }
+
+      else if (type.includes("word")) {
+        const data = await mammoth.extractRawText({ path: file.path });
+        combinedText += data.value + "\n";
+      }
+
+      else if (type.includes("spreadsheet")) {
+        const wb = xlsx.readFile(file.path);
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        combinedText += xlsx.utils.sheet_to_csv(sheet) + "\n";
+      }
+
+      fs.unlinkSync(file.path);
+    }
+
+    const instruction = req.body.instruction || "Create a balanced question paper";
+
+    const ai = await openai.responses.create({
+      model: "gpt-4o-mini",
+      input: `
+You are a professional exam paper setter.
+
+Instruction:
+${instruction}
+
+Content:
+${combinedText}
+
+Create a structured question paper with:
+- Sections (A, B, C)
+- Marks distribution
+- Clear formatting
+`
+    });
+
+    res.json({ result: ai.output_text });
+
+  } catch (err) {
+    console.error("Paper error:", err);
+    res.status(500).json({ error: "Failed to generate paper" });
+  }
+});
+
+/* ================= DOWNLOAD PDF ================= */
 app.post("/download-pdf", (req, res) => {
   const doc = new PDFDocument();
+
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", "attachment; filename=result.pdf");
 
@@ -116,6 +190,7 @@ app.post("/download-pdf", (req, res) => {
   doc.end();
 });
 
+/* ================= DOWNLOAD DOCX ================= */
 app.post("/download-docx", async (req, res) => {
 
   const lines = req.body.text.split("\n");
@@ -123,7 +198,6 @@ app.post("/download-docx", async (req, res) => {
   const paragraphs = lines.map(line =>
     new Paragraph({
       text: line,
-      bullet: { level: 0 },
       spacing: { after: 200 }
     })
   );
@@ -138,8 +212,7 @@ app.post("/download-docx", async (req, res) => {
   res.send(buffer);
 });
 
-/* ================= START ================= */
-
+/* ================= START SERVER ================= */
 app.listen(3000, () => {
-  console.log("🔥 Server running with memory");
+  console.log("🔥 Server running (FINAL VERSION)");
 });
