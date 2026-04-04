@@ -1,218 +1,69 @@
-const express = require("express");
-const cors = require("cors");
-const multer = require("multer");
-const fs = require("fs");
-const pdfParse = require("pdf-parse");
-const mammoth = require("mammoth");
-const xlsx = require("xlsx");
-const PDFDocument = require("pdfkit");
-const { Document, Packer, Paragraph } = require("docx");
-const OpenAI = require("openai");
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
+
+// Middleware
 app.use(cors());
 app.use(express.json());
 
-const upload = multer({ dest: "uploads/" });
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+// Home route
+app.get("/", (req, res) => {
+  res.send("✅ Problemxify Backend is Running 🚀");
 });
 
-/* ================= CHAT WITH MEMORY ================= */
+// Health check
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
+// Chat API
 app.post("/chat", async (req, res) => {
   try {
+    const { message } = req.body;
 
-    const messages = req.body.messages;
-
-    const response = await openai.responses.create({
-      model: "gpt-4o-mini",
-      input: messages
-    });
-
-    res.json({
-      reply: response.output_text
-    });
-
-  } catch (err) {
-    console.error("Chat error:", err);
-    res.status(500).json({ reply: "Server error" });
-  }
-});
-
-/* ================= SINGLE FILE UPLOAD ================= */
-app.post("/upload", upload.single("file"), async (req, res) => {
-  try {
-
-    if (!req.file) {
-      return res.status(400).json({ error: "No file uploaded" });
-    }
-
-    let text = "";
-    const filePath = req.file.path;
-    const type = req.file.mimetype;
-
-    if (type === "application/pdf") {
-      const data = await pdfParse(fs.readFileSync(filePath));
-      text = data.text;
-    }
-
-    else if (type.startsWith("image/")) {
-      const base64 = fs.readFileSync(filePath, { encoding: "base64" });
-
-      const response = await openai.responses.create({
-        model: "gpt-4o-mini",
-        input: [
-          {
-            role: "user",
-            content: [
-              { type: "input_text", text: "Extract text clearly" },
-              { type: "input_image", image_url: `data:image/jpeg;base64,${base64}` }
-            ]
-          }
-        ]
+    if (!message) {
+      return res.status(400).json({
+        reply: "❌ Please send a message"
       });
-
-      text = response.output_text;
     }
 
-    else if (type.includes("word")) {
-      const data = await mammoth.extractRawText({ path: filePath });
-      text = data.value;
-    }
-
-    else if (type.includes("spreadsheet")) {
-      const wb = xlsx.readFile(filePath);
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      text = xlsx.utils.sheet_to_csv(sheet);
-    }
-
-    const ai = await openai.responses.create({
-      model: "gpt-4o-mini",
-      input: `Solve clearly:\n\n${text}`
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-mini",
+        input: message
+      })
     });
 
-    fs.unlinkSync(filePath);
+    const data = await response.json();
 
-    res.json({ result: ai.output_text });
+    let reply = "⚠️ No response from AI";
 
-  } catch (err) {
-    console.error("Upload error:", err);
-    res.status(500).json({ error: "Processing failed" });
+    if (data?.output?.[0]?.content?.[0]?.text) {
+      reply = data.output[0].content[0].text;
+    }
+
+    res.json({ reply });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      reply: "🚨 Server error, try again"
+    });
   }
 });
 
-/* ================= MULTI FILE PAPER GENERATOR ================= */
-app.post("/generate-paper", upload.array("files"), async (req, res) => {
-  try {
+// PORT (Render compatible)
+const PORT = process.env.PORT || 3000;
 
-    let combinedText = "";
-
-    for (let file of req.files) {
-
-      const type = file.mimetype;
-
-      if (type === "application/pdf") {
-        const data = await pdfParse(fs.readFileSync(file.path));
-        combinedText += data.text + "\n";
-      }
-
-      else if (type.startsWith("image/")) {
-        const base64 = fs.readFileSync(file.path, { encoding: "base64" });
-
-        const response = await openai.responses.create({
-          model: "gpt-4o-mini",
-          input: [
-            {
-              role: "user",
-              content: [
-                { type: "input_text", text: "Extract text clearly" },
-                { type: "input_image", image_url: `data:image/jpeg;base64,${base64}` }
-              ]
-            }
-          ]
-        });
-
-        combinedText += response.output_text + "\n";
-      }
-
-      else if (type.includes("word")) {
-        const data = await mammoth.extractRawText({ path: file.path });
-        combinedText += data.value + "\n";
-      }
-
-      else if (type.includes("spreadsheet")) {
-        const wb = xlsx.readFile(file.path);
-        const sheet = wb.Sheets[wb.SheetNames[0]];
-        combinedText += xlsx.utils.sheet_to_csv(sheet) + "\n";
-      }
-
-      fs.unlinkSync(file.path);
-    }
-
-    const instruction = req.body.instruction || "Create a balanced question paper";
-
-    const ai = await openai.responses.create({
-      model: "gpt-4o-mini",
-      input: `
-You are a professional exam paper setter.
-
-Instruction:
-${instruction}
-
-Content:
-${combinedText}
-
-Create a structured question paper with:
-- Sections (A, B, C)
-- Marks distribution
-- Clear formatting
-`
-    });
-
-    res.json({ result: ai.output_text });
-
-  } catch (err) {
-    console.error("Paper error:", err);
-    res.status(500).json({ error: "Failed to generate paper" });
-  }
-});
-
-/* ================= DOWNLOAD PDF ================= */
-app.post("/download-pdf", (req, res) => {
-  const doc = new PDFDocument();
-
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", "attachment; filename=result.pdf");
-
-  doc.pipe(res);
-  doc.text(req.body.text);
-  doc.end();
-});
-
-/* ================= DOWNLOAD DOCX ================= */
-app.post("/download-docx", async (req, res) => {
-
-  const lines = req.body.text.split("\n");
-
-  const paragraphs = lines.map(line =>
-    new Paragraph({
-      text: line,
-      spacing: { after: 200 }
-    })
-  );
-
-  const doc = new Document({
-    sections: [{ children: paragraphs }]
-  });
-
-  const buffer = await Packer.toBuffer(doc);
-
-  res.setHeader("Content-Disposition", "attachment; filename=result.docx");
-  res.send(buffer);
-});
-
-/* ================= START SERVER ================= */
-app.listen(3000, () => {
-  console.log("🔥 Server running (FINAL VERSION)");
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
