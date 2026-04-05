@@ -1,38 +1,26 @@
-import express from "express";
-import cors from "cors";
-import dotenv from "dotenv";
-
-dotenv.config();
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
 
 const app = express();
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// 🔹 ROOT CHECK
+// TEST ROUTE
 app.get("/", (req, res) => {
-  res.send("✅ Problemxify Backend Running 🚀");
+  res.send("Backend Running 🚀");
 });
 
-// 🔹 HEALTH CHECK
-app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
-});
-
-// 🔹 CHAT API
+// CHAT API
 app.post("/chat", async (req, res) => {
   try {
     const { message } = req.body;
 
-    // ❌ Empty message check
-    if (!message || message.trim() === "") {
-      return res.status(400).json({
-        reply: "❌ Please send a message"
-      });
+    if (!message) {
+      return res.status(400).json({ error: "Message missing" });
     }
 
-    // 🔥 OpenAI API call
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
@@ -47,27 +35,18 @@ app.post("/chat", async (req, res) => {
 
     const data = await response.json();
 
-    // 🔍 Safe response extract
-    let reply = "⚠️ No response from AI";
-
-    if (data?.output?.[0]?.content?.[0]?.text) {
-      reply = data.output[0].content[0].text;
-    }
+    const reply =
+      data.output?.[0]?.content?.[0]?.text || "No response";
 
     res.json({ reply });
 
-  } catch (error) {
-    console.error("❌ ERROR:", error);
-
-    res.status(500).json({
-      reply: "🚨 Server error, try again later"
-    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-// 🔹 PORT (Render compatible)
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
-  console.log("🚀 Server running on port " + PORT);
+  console.log("Server running on port " + PORT);
 });
