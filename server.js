@@ -10,27 +10,29 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Home route
+// 🔹 ROOT CHECK
 app.get("/", (req, res) => {
-  res.send("✅ Problemxify Backend is Running 🚀");
+  res.send("✅ Problemxify Backend Running 🚀");
 });
 
-// Health check
+// 🔹 HEALTH CHECK
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// Chat API
+// 🔹 CHAT API
 app.post("/chat", async (req, res) => {
   try {
     const { message } = req.body;
 
-    if (!message) {
+    // ❌ Empty message check
+    if (!message || message.trim() === "") {
       return res.status(400).json({
         reply: "❌ Please send a message"
       });
     }
 
+    // 🔥 OpenAI API call
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
@@ -45,6 +47,7 @@ app.post("/chat", async (req, res) => {
 
     const data = await response.json();
 
+    // 🔍 Safe response extract
     let reply = "⚠️ No response from AI";
 
     if (data?.output?.[0]?.content?.[0]?.text) {
@@ -54,16 +57,17 @@ app.post("/chat", async (req, res) => {
     res.json({ reply });
 
   } catch (error) {
-    console.error(error);
+    console.error("❌ ERROR:", error);
+
     res.status(500).json({
-      reply: "🚨 Server error, try again"
+      reply: "🚨 Server error, try again later"
     });
   }
 });
 
-// PORT (Render compatible)
+// 🔹 PORT (Render compatible)
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log("🚀 Server running on port " + PORT);
 });
